@@ -1,5 +1,5 @@
 python-jobspy>=1.1.0
-python-telegram-bot>=21.0
+python-telegram-bot[job-queue]>=21.0
 pandas>=2.0.0
 flask
 gunicorn
