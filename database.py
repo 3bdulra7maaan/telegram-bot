@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 # Database configuration
 DB_PATH = os.environ.get("DB_PATH", "linkedit.db")
 
+# Ensure the directory for the database file exists
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir and not os.path.exists(_db_dir):
+    try:
+        os.makedirs(_db_dir, exist_ok=True)
+        logger.info("Created database directory: %s", _db_dir)
+    except OSError as e:
+        logger.warning("Could not create directory %s: %s. Falling back to local path.", _db_dir, e)
+        DB_PATH = "linkedit.db"
+
 # Thread-local storage for database connections
 _local = threading.local()
 
