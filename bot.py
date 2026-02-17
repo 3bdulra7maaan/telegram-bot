@@ -85,7 +85,7 @@ SEARCH_SITES = ["indeed", "linkedin"]
 # ========================
 COUNTRIES = {
     "qa": {"name": "🇶🇦 قطر", "location": "Qatar", "indeed_country": "qatar"},
-    "ae": {"name": "🇦🇪 الإمارات", "location": "United Arab Emirates", "indeed_country": "UAE"},
+    "ae": {"name": "🇦🇪 الإمارات", "location": "United Arab Emirates", "indeed_country": "united arab emirates"},
     "sa": {"name": "🇸🇦 السعودية", "location": "Saudi Arabia", "indeed_country": "saudi arabia"},
     "bh": {"name": "🇧🇭 البحرين", "location": "Bahrain", "indeed_country": "bahrain"},
 }
