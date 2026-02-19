@@ -113,11 +113,22 @@ GREETINGS = frozenset([
     "السلام عليكم", "مرحبا", "اهلا", "هلا", "صباح", "مساء",
     "شكرا", "الحمد", "بسم الله", "hi", "hello", "hey", "thanks",
     "good morning", "good evening", "شكراً", "مرحباً", "أهلاً",
+    "كيف حالك", "كيفك", "السلام", "وعليكم", "تمام", "اوكي",
+    "حياك", "يعطيك العافية", "الله يعافيك", "جزاك الله",
 ])
 
 COUNTRY_NAMES = frozenset([
     "قطر", "الامارات", "الإمارات", "السعودية", "البحرين",
     "qatar", "uae", "saudi", "bahrain", "saudi arabia",
+    "دبي", "الدوحة", "الرياض", "المنامة", "ابوظبي", "أبوظبي",
+    "جدة", "مكة", "المدينة", "الدمام", "القصيم", "الخبر",
+    "dubai", "doha", "riyadh", "manama", "abu dhabi", "jeddah",
+])
+
+NON_JOB_PHRASES = frozenset([
+    "ok", "yes", "no", "نعم", "لا", "test", "تجربة", "بوت", "bot",
+    "start", "help", "ماهي الوظائف", "دون جدوى",
+    "تحميل وتنزيل", "ماهي الوظائف المتوفره",
 ])
 
 # ========================
@@ -182,23 +193,68 @@ async def safe_send_message(bot, chat_id: int, text: str, **kwargs):
 # Input Validation
 # ========================
 
+def clean_search_term(text: str) -> str:
+    """
+    Clean and normalize search term for better results.
+    - Remove country names from search text (already selected via filter)
+    - Fix double dots, extra spaces, dashes at start
+    - Remove personal info patterns
+    """
+    if not text:
+        return text
+    
+    # Remove common prefixes users add
+    remove_prefixes = [
+        "ابحث عن", "أبحث عن", "بحث عن", "اريد وظيفة", "أريد وظيفة",
+        "وظيفة", "وظائف", "jobs in", "job in", "jobs",
+    ]
+    text_lower = text.lower().strip()
+    for prefix in remove_prefixes:
+        if text_lower.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    
+    # Remove country/city names from search (already filtered separately)
+    country_city_words = [
+        "في قطر", "في السعودية", "في الامارات", "في الإمارات", "في البحرين",
+        "في دبي", "في الرياض", "في الدوحة", "في جدة", "في ابوظبي", "في أبوظبي",
+        "in qatar", "in saudi", "in saudi arabia", "in uae", "in bahrain",
+        "in dubai", "in riyadh", "in doha", "in jeddah", "in abu dhabi",
+        "jobs in", "job in",
+    ]
+    for word in country_city_words:
+        text = re.sub(re.escape(word), "", text, flags=re.IGNORECASE).strip()
+    
+    # Fix formatting issues
+    text = re.sub(r'\.{2,}', ' ', text)       # Double dots -> space
+    text = re.sub(r'\s{2,}', ' ', text)        # Multiple spaces -> single
+    text = re.sub(r'^[\-\.\,]+', '', text)     # Remove leading special chars
+    text = re.sub(r'[\-\.\,]+$', '', text)     # Remove trailing special chars
+    text = re.sub(r'\(.*?\)', '', text)         # Remove parentheses content
+    
+    return text.strip()
+
+
 def validate_search_input(text: str) -> tuple[bool, str]:
     """
-    Validate user search input. Returns (is_valid, error_message).
+    Validate user search input. Returns (is_valid, error_message_or_cleaned_text).
+    If valid, error_message contains the cleaned search term.
     """
     if not text or not text.strip():
         return False, "الرجاء إدخال نص البحث."
 
     text = text.strip()
 
-    # Too short or too long
-    if len(text) < 2:
-        return False, "نص البحث قصير جداً. أدخل مسمى وظيفي (مثال: Accountant)"
-    if len(text) > 60:
-        return False, "نص البحث طويل جداً. حاول بكلمات أقل."
+    # Too long (before cleaning)
+    if len(text) > 100:
+        return False, (
+            "⚠️ نص البحث طويل جداً. أدخل <b>المسمى الوظيفي فقط</b>.\n\n"
+            "✅ مثال صحيح: <code>Accountant</code>\n"
+            "❌ مثال خاطئ: <code>ابحث عن وظيفة محاسب في السعودية خبرة 5 سنوات</code>"
+        )
 
-    # Only emojis/symbols (no alphanumeric characters)
-    if not any(c.isalnum() for c in text):
+    # Only emojis/symbols (no alphanumeric or Arabic characters)
+    if not any(c.isalnum() or '\u0600' <= c <= '\u06FF' for c in text):
         return False, ""
 
     # Greetings
@@ -206,11 +262,59 @@ def validate_search_input(text: str) -> tuple[bool, str]:
     if any(text_lower.startswith(g) for g in GREETINGS):
         return False, ""
 
-    # Country names only
-    if text_lower in COUNTRY_NAMES:
-        return False, "هذا اسم دولة وليس مسمى وظيفي. اضغط /start واختر الدولة ثم أدخل المسمى الوظيفي."
+    # Non-job phrases
+    if text_lower in NON_JOB_PHRASES or any(text_lower.startswith(p) for p in NON_JOB_PHRASES):
+        return False, (
+            "👋 أهلاً بك! للبحث عن وظيفة، أرسل <b>المسمى الوظيفي</b> مباشرة.\n\n"
+            "✅ أمثلة صحيحة:\n"
+            "<code>Accountant</code>\n"
+            "<code>مهندس مدني</code>\n"
+            "<code>Sales Manager</code>\n"
+            "<code>ممرض</code>\n\n"
+            "أو اضغط /start لاختيار التصنيف والدولة."
+        )
 
-    return True, ""
+    # Country/city names only
+    if text_lower in COUNTRY_NAMES:
+        return False, (
+            "⚠️ هذا اسم مدينة/دولة وليس مسمى وظيفي.\n\n"
+            "اضغط /start واختر الدولة من القائمة، ثم أدخل المسمى الوظيفي.\n\n"
+            "✅ مثال: <code>مهندس</code> أو <code>Accountant</code>"
+        )
+
+    # Clean the search term
+    cleaned = clean_search_term(text)
+    
+    # Too short after cleaning
+    if len(cleaned) < 2:
+        return False, (
+            "⚠️ نص البحث قصير جداً. أدخل مسمى وظيفي واضح.\n\n"
+            "✅ أمثلة: <code>Accountant</code> أو <code>مهندس كهرباء</code>"
+        )
+    
+    # Contains personal info pattern (name + nationality + looking for job)
+    # Only reject if it contains PERSONAL INFO (name, nationality), not just "ابحث عن وظيفة X"
+    NATIONALITIES = r'(سوداني|مصري|يمني|سوري|أردني|تونسي|جزائري|مغربي|عراقي|فلسطيني|لبناني|هندي|باكستاني|فلبيني|بنغالي|سودانية|مصرية|يمنية|سورية|أردنية)'
+    personal_patterns = [
+        r'اسمي',                                  # اسمي
+        r'^أنا .+(أبحث|ابحث)',                # أنا ... أبحث
+        r'my name is|i am \w+ looking',
+        NATIONALITIES,                              # أي جنسية في النص
+    ]
+    for pattern in personal_patterns:
+        if re.search(pattern, text_lower):
+            # Try to extract the job title from the text
+            job_keywords = re.findall(r'\u0648\u0638\u064a\u0641\u0629\s+(\S+)', text) or re.findall(r'looking for\s+(\S+)', text_lower)
+            suggestion = job_keywords[0] if job_keywords else ""
+            msg = (
+                "\u26a0\ufe0f \u0644\u0627 \u062a\u062d\u062a\u0627\u062c \u0644\u0643\u062a\u0627\u0628\u0629 \u0645\u0639\u0644\u0648\u0645\u0627\u062a\u0643 \u0627\u0644\u0634\u062e\u0635\u064a\u0629. \u0641\u0642\u0637 \u0623\u0631\u0633\u0644 <b>\u0627\u0644\u0645\u0633\u0645\u0649 \u0627\u0644\u0648\u0638\u064a\u0641\u064a</b>.\n\n"
+            )
+            if suggestion:
+                msg += f"\ud83d\udca1 \u0647\u0644 \u062a\u0642\u0635\u062f: <code>{escape_html(suggestion)}</code>?\n\n"
+            msg += "\u2705 \u0645\u062b\u0627\u0644: <code>\u0645\u0645\u0631\u0636</code> \u0623\u0648 <code>Nurse</code>"
+            return False, msg
+
+    return True, cleaned
 
 
 # ========================
@@ -570,10 +674,16 @@ async def perform_search(update_or_query, context, search_term: str, country_cod
             logger.error("Error logging search: %s", e)
 
         if not results:
+            no_result_msg = (
+                f"\ud83d\ude14 \u0644\u0645 \u0623\u062c\u062f \u0648\u0638\u0627\u0626\u0641 \u062d\u0627\u0644\u064a\u0627\u064b \u0644\u0640 <b>{escape_html(search_term)}</b>.\n\n"
+                "\ud83d\udca1 <b>\u0646\u0635\u0627\u0626\u062d \u0644\u0646\u062a\u0627\u0626\u062c \u0623\u0641\u0636\u0644:</b>\n"
+                "\u2022 \u062c\u0631\u0628 \u0627\u0644\u0628\u062d\u062b <b>\u0628\u0627\u0644\u0625\u0646\u062c\u0644\u064a\u0632\u064a\u0629</b> (\u0646\u062a\u0627\u0626\u062c \u0623\u0643\u062b\u0631)\n"
+                "\u2022 \u0627\u0633\u062a\u062e\u062f\u0645 \u0643\u0644\u0645\u0627\u062a \u0623\u0639\u0645 (\u0645\u062b\u0644\u0627\u064b: <code>Engineer</code> \u0628\u062f\u0644\u0627\u064b \u0645\u0646 \u062a\u062e\u0635\u0635 \u062f\u0642\u064a\u0642)\n"
+                "\u2022 \u062c\u0631\u0628 <b>\u062c\u0645\u064a\u0639 \u0627\u0644\u062f\u0648\u0644</b> \u0644\u062a\u0648\u0633\u064a\u0639 \u0627\u0644\u0628\u062d\u062b\n"
+                "\u2022 \u062a\u0635\u0641\u062d \u0627\u0644\u062a\u0635\u0646\u064a\u0641\u0627\u062a \u0627\u0644\u062c\u0627\u0647\u0632\u0629 \u0645\u0646 /start"
+            )
             await safe_send_message(
-                context.bot, chat_id,
-                f"😔 لم أجد وظائف حالياً لـ <b>{escape_html(search_term)}</b>.\n"
-                "حاول مرة أخرى بمسمى مختلف أو بالإنجليزية.",
+                context.bot, chat_id, no_result_msg,
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -1046,18 +1156,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Default: treat as job search with validation
-        is_valid, error_msg = validate_search_input(text)
+        is_valid, result_msg = validate_search_input(text)
         if not is_valid:
-            guide_msg = error_msg if error_msg else (
-                "👋 أهلاً بك! للبحث عن وظيفة، يرجى إرسال <b>المسمى الوظيفي</b> مباشرة.\n\n"
-                "مثال: <code>Accountant</code> أو <code>مهندس</code> أو <code>Sales Manager</code>\n\n"
-                "أو اضغط /start لعرض القائمة الرئيسية."
+            guide_msg = result_msg if result_msg else (
+                "\ud83d\udc4b \u0623\u0647\u0644\u0627\u064b \u0628\u0643! \u0644\u0644\u0628\u062d\u062b \u0639\u0646 \u0648\u0638\u064a\u0641\u0629\u060c \u064a\u0631\u062c\u0649 \u0625\u0631\u0633\u0627\u0644 <b>\u0627\u0644\u0645\u0633\u0645\u0649 \u0627\u0644\u0648\u0638\u064a\u0641\u064a</b> \u0645\u0628\u0627\u0634\u0631\u0629.\n\n"
+                "\u2705 \u0623\u0645\u062b\u0644\u0629 \u0635\u062d\u064a\u062d\u0629:\n"
+                "<code>Accountant</code>\n"
+                "<code>\u0645\u0647\u0646\u062f\u0633 \u0645\u062f\u0646\u064a</code>\n"
+                "<code>Sales Manager</code>\n"
+                "<code>\u0645\u0645\u0631\u0636</code>\n\n"
+                "\u0623\u0648 \u0627\u0636\u063a\u0637 /start \u0644\u0627\u062e\u062a\u064a\u0627\u0631 \u0627\u0644\u062a\u0635\u0646\u064a\u0641 \u0648\u0627\u0644\u062f\u0648\u0644\u0629."
             )
             await update.message.reply_text(guide_msg, parse_mode=ParseMode.HTML)
             return
 
+        # Use cleaned search term for better results
+        cleaned_term = result_msg  # When valid, result_msg contains the cleaned term
         country_code = context.user_data.get("country", "all")
-        await perform_search(update, context, text, country_code)
+        
+        # Notify user if term was cleaned
+        if cleaned_term != text:
+            logger.info("Search cleaned: '%s' -> '%s'", text, cleaned_term)
+        
+        await perform_search(update, context, cleaned_term, country_code)
 
     except Exception as e:
         logger.error("Error in handle_message: %s", e)
